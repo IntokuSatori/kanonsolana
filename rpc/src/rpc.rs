@@ -507,6 +507,62 @@ impl JsonRpcRequestProcessor {
         })
     }
 
+    pub fn get_secondary_index_key_size (
+        &self,
+        index_key: &Pubkey,
+        commitment: Option<CommitmentConfig>
+    ) -> Result<RpcResponse<Option<HashMap<JsonAccountIndex, usize>>>>
+    {        
+        // Grab RPC server's secondary index config
+        // Exit if secondary indexes are not enabled
+        let secondary_index_config = 
+            if !self.config.account_indexes.is_empty() {
+                &self.config.account_indexes
+            }
+            else { return None.ok_or(Error::from(RpcCustomError::SecondaryIndexDoesNotExist)); };
+        
+        // Make sure your key is not explicitly excluded
+        if !self.config.account_indexes.include_key(index_key) {
+            return None.ok_or(Error::from(RpcCustomError::KeyExcludedFromSecondaryIndex {
+                index_key: index_key.to_string(),
+            }));
+        }
+
+        // Aquire the bank
+        let bank = self.bank(commitment);
+
+        // Grab a ref to the AccountsIndex for this Bank
+        let accounts_index = &bank.accounts().accounts_db.accounts_index;
+
+        // Find the size of the key in every index where it exists
+        let found_sizes = 
+            Some(secondary_index_config
+                .indexes
+                .iter()
+                .filter_map(|idx| 
+                    {
+                        let sz = accounts_index.get_index_key_size(idx, index_key);
+                        (sz.is_some())
+                        .then(|| 
+                        (match idx {
+                            AccountIndex::ProgramId => JsonAccountIndex::ProgramId,
+                            AccountIndex::SplTokenOwner => JsonAccountIndex::SplTokenOwner,
+                            AccountIndex::SplTokenMint => JsonAccountIndex::SplTokenMint
+                        }, sz.unwrap()))
+                    }).collect::<HashMap<_, _>>()
+            );
+        
+        // If you have an empty map, the key DNE in the secondary indices
+        if found_sizes.is_some() && found_sizes.as_ref().unwrap().is_empty() {
+            return None.ok_or(Error::from(RpcCustomError::KeyDoesNotExistInSecondaryIndex {
+                index_key: index_key.to_string(),
+            }));
+        }
+
+        Ok(new_response(&bank, found_sizes))
+
+    }
+
     pub async fn get_inflation_reward(
         &self,
         addresses: Vec<Pubkey>,
@@ -2982,6 +3038,14 @@ pub mod rpc_accounts {
             config: Option<RpcProgramAccountsConfig>,
         ) -> Result<OptionalContext<Vec<RpcKeyedAccount>>>;
 
+        #[rpc(meta, name = "getSecondaryIndexKeySize")]
+        fn get_secondary_index_key_size(
+            &self,
+            meta: Self::Metadata,
+            pubkey_str: String,
+            commitment: Option<CommitmentConfig>,
+        ) -> Result<RpcResponse<Option<HashMap<JsonAccountIndex, usize>>>>;
+
         #[rpc(meta, name = "getBlockCommitment")]
         fn get_block_commitment(
             &self,
@@ -3131,6 +3195,20 @@ pub mod rpc_accounts {
                 verify_filter(filter)?;
             }
             meta.get_program_accounts(&program_id, config, filters, with_context)
+        }
+
+        fn get_secondary_index_key_size(
+            &self,
+            meta: Self::Metadata,
+            pubkey_str: String,
+            commitment: Option<CommitmentConfig>,
+        ) -> Result<RpcResponse<Option<HashMap<JsonAccountIndex, usize>>>> {
+            debug!(
+                "get_secondary_index_key_size rpc request received: {:?}",
+                pubkey_str
+            );
+            let idx_key = verify_pubkey(&pubkey_str)?;
+            meta.get_secondary_index_key_size(&idx_key, commitment)
         }
 
         fn get_block_commitment(
