@@ -1,3 +1,5 @@
+use std::ops::DerefMut;
+
 use {
     crate::{
         accounts_index_storage::{AccountsIndexStorage, Startup},
@@ -666,6 +668,7 @@ pub enum AccountsIndexScanResult {
 
 #[derive(Debug)]
 pub struct AccountsIndex<T: IndexValue> {
+    pub test_num_keys: dashmap::DashMap<AccountIndex, usize>,
     pub account_maps: LockMapType<T>,
     pub bin_calculator: PubkeyBinCalculator24,
     program_id_index: SecondaryIndex<DashMapSecondaryIndexEntry>,
@@ -714,6 +717,7 @@ impl<T: IndexValue> AccountsIndex<T> {
             .and_then(|config| config.scan_results_limit_bytes);
         let (account_maps, bin_calculator, storage) = Self::allocate_accounts_index(config, exit);
         Self {
+            test_num_keys: vec![AccountIndex::ProgramId, AccountIndex::SplTokenMint, AccountIndex::SplTokenOwner].into_iter().map(|x| (x, 0_usize)).collect::<dashmap::DashMap<_, _>>(),
             account_maps,
             bin_calculator,
             program_id_index: SecondaryIndex::<DashMapSecondaryIndexEntry>::new(
@@ -1452,11 +1456,15 @@ impl<T: IndexValue> AccountsIndex<T> {
         account_owner: &Pubkey,
         account_data: &[u8],
         account_indexes: &AccountSecondaryIndexes,
+        test_num_keys: &dashmap::DashMap<AccountIndex, usize>,
     ) {
-        if *account_owner == *token_id {
-            if account_indexes.contains(&AccountIndex::SplTokenOwner) {
-                if let Some(owner_key) = G::unpack_account_owner(account_data) {
+        if *account_owner == *token_id { // is this account owned by the token program
+            if account_indexes.contains(&AccountIndex::SplTokenOwner) { // and your tracking owners
+                if let Some(owner_key) = G::unpack_account_owner(account_data) {  
                     if account_indexes.include_key(owner_key) {
+                        if !self.spl_token_owner_index.index.contains_key(owner_key) {
+                            *test_num_keys.get_mut(&AccountIndex::SplTokenOwner).unwrap().deref_mut() += 1;
+                        }
                         self.spl_token_owner_index.insert(owner_key, pubkey);
                     }
                 }
@@ -1465,6 +1473,9 @@ impl<T: IndexValue> AccountsIndex<T> {
             if account_indexes.contains(&AccountIndex::SplTokenMint) {
                 if let Some(mint_key) = G::unpack_account_mint(account_data) {
                     if account_indexes.include_key(mint_key) {
+                        if !self.spl_token_mint_index.index.contains_key(mint_key) {
+                            *test_num_keys.get_mut(&AccountIndex::SplTokenMint).unwrap().deref_mut() += 1;
+                        }
                         self.spl_token_mint_index.insert(mint_key, pubkey);
                     }
                 }
@@ -1494,6 +1505,7 @@ impl<T: IndexValue> AccountsIndex<T> {
         account: &impl ReadableAccount,
         account_indexes: &AccountSecondaryIndexes,
     ) {
+
         if account_indexes.is_empty() {
             return;
         }
@@ -1504,6 +1516,9 @@ impl<T: IndexValue> AccountsIndex<T> {
         if account_indexes.contains(&AccountIndex::ProgramId)
             && account_indexes.include_key(account_owner)
         {
+            if !self.program_id_index.index.contains_key(account_owner) {
+                *self.test_num_keys.get_mut(&AccountIndex::ProgramId).unwrap().deref_mut() += 1;
+            }
             self.program_id_index.insert(account_owner, pubkey);
         }
         // Note because of the below check below on the account data length, when an
@@ -1526,6 +1541,7 @@ impl<T: IndexValue> AccountsIndex<T> {
             account_owner,
             account_data,
             account_indexes,
+            &self.test_num_keys,
         );
         self.update_spl_token_secondary_indexes::<inline_spl_token_2022::Account>(
             &inline_spl_token_2022::id(),
@@ -1533,6 +1549,7 @@ impl<T: IndexValue> AccountsIndex<T> {
             account_owner,
             account_data,
             account_indexes,
+            &self.test_num_keys,
         );
     }
 

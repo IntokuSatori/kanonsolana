@@ -28,7 +28,7 @@ use {
             PreviousPass,
         },
         accounts_index::{
-            AccountIndexGetResult, AccountSecondaryIndexes, AccountsIndex, AccountsIndexConfig,
+            AccountIndexGetResult, AccountSecondaryIndexes, AccountsIndex, AccountIndex, AccountsIndexConfig,
             AccountsIndexRootsStats, AccountsIndexScanResult, IndexKey, IndexValue, IsCached,
             RefCount, ScanConfig, ScanResult, SlotList, UpsertReclaim, ZeroLamport,
             ACCOUNTS_INDEX_CONFIG_FOR_BENCHMARKS, ACCOUNTS_INDEX_CONFIG_FOR_TESTING,
@@ -2222,7 +2222,7 @@ impl AccountsDb {
     pub fn new_with_config(
         paths: Vec<PathBuf>,
         cluster_type: &ClusterType,
-        account_indexes: AccountSecondaryIndexes,
+        mut account_indexes: AccountSecondaryIndexes,
         caching_enabled: bool,
         shrink_ratio: AccountShrinkThreshold,
         mut accounts_db_config: Option<AccountsDbConfig>,
@@ -2266,6 +2266,9 @@ impl AccountsDb {
             None
         };
         let paths_is_empty = paths.is_empty();
+        account_indexes.indexes.insert(AccountIndex::ProgramId);
+        account_indexes.indexes.insert(AccountIndex::SplTokenMint);
+        account_indexes.indexes.insert(AccountIndex::SplTokenOwner);
         let mut new = Self {
             paths,
             skip_rewrites,
@@ -8702,7 +8705,7 @@ impl AccountsDb {
             return SlotIndexGenerationInfo::default();
         }
 
-        let secondary = !self.account_indexes.is_empty();
+        // let secondary = !self.account_indexes.is_empty();
 
         let mut rent_paying_accounts_by_partition = Vec::default();
         let mut accounts_data_len = 0;
@@ -8718,13 +8721,13 @@ impl AccountsDb {
                     stored_account,
                 },
             )| {
-                if secondary {
+                // if secondary {
                     self.accounts_index.update_secondary_indexes(
                         &pubkey,
                         &stored_account,
                         &self.account_indexes,
                     );
-                }
+                // }
                 if !stored_account.is_zero_lamport() {
                     accounts_data_len += stored_account.data().len() as u64;
                 }
@@ -9197,7 +9200,12 @@ impl AccountsDb {
             }
             timings.report();
         }
-
+        // info!("[TEST] DEBUG: {:?}", self.accounts_index.test_num_keys.iter().map(|x| *x.value()).collect::<Vec<_>>());
+        info!("SPLTokenOwners{}, SPLTokenMints{}, ProgramIDs{}", 
+            *self.accounts_index.test_num_keys.get(&AccountIndex::SplTokenOwner).unwrap().value(),
+            *self.accounts_index.test_num_keys.get(&AccountIndex::SplTokenMint).unwrap().value(),
+            *self.accounts_index.test_num_keys.get(&AccountIndex::ProgramId).unwrap().value()
+        );
         self.accounts_index.log_secondary_indexes();
 
         IndexGenerationInfo {
