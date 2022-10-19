@@ -1472,12 +1472,19 @@ impl<T: IndexValue> AccountsIndex<T> {
         }
     }
 
-    pub fn get_index_key_size(&self, index: &AccountIndex, index_key: &Pubkey) -> Option<usize>
-    {
+    pub fn get_index_key_size(&self, index: &AccountIndex, index_key: &Pubkey) -> Option<usize> {
         match index {
-            AccountIndex::ProgramId => self.program_id_index.index.get(index_key).and_then(|x| Some(x.len())),
-            AccountIndex::SplTokenOwner => self.spl_token_owner_index.index.get(index_key).and_then(|x| Some(x.len())),
-            AccountIndex::SplTokenMint => self.spl_token_mint_index.index.get(index_key).and_then(|x| Some(x.len()))
+            AccountIndex::ProgramId => self.program_id_index.index.get(index_key).map(|x| x.len()),
+            AccountIndex::SplTokenOwner => self
+                .spl_token_owner_index
+                .index
+                .get(index_key)
+                .map(|x| x.len()),
+            AccountIndex::SplTokenMint => self
+                .spl_token_mint_index
+                .index
+                .get(index_key)
+                .map(|x| x.len()),
         }
     }
 

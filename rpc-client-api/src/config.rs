@@ -139,7 +139,7 @@ pub struct RpcEpochConfig {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
-pub enum JsonAccountIndex {
+pub enum RpcAccountIndex {
     ProgramId,
     SplTokenMint,
     SplTokenOwner,

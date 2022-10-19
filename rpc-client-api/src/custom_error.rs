@@ -24,8 +24,6 @@ pub const JSON_RPC_SERVER_ERROR_TRANSACTION_SIGNATURE_LEN_MISMATCH: i64 = -32013
 pub const JSON_RPC_SERVER_ERROR_BLOCK_STATUS_NOT_AVAILABLE_YET: i64 = -32014;
 pub const JSON_RPC_SERVER_ERROR_UNSUPPORTED_TRANSACTION_VERSION: i64 = -32015;
 pub const JSON_RPC_SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED: i64 = -32016;
-pub const JSON_RPC_SERVER_ERROR_SECONDARY_INDEX_DOES_NOT_EXIST: i64 = -32017;
-pub const JSON_RPC_SERVER_ERROR_KEY_DOES_NOT_EXIST_IN_SECONDARY_INDEX: i64 = -32018;
 
 #[derive(Error, Debug)]
 pub enum RpcCustomError {
@@ -67,10 +65,6 @@ pub enum RpcCustomError {
     UnsupportedTransactionVersion(u8),
     #[error("MinContextSlotNotReached")]
     MinContextSlotNotReached { context_slot: Slot },
-    #[error("SecondaryIndexDoesNotExist")]
-    SecondaryIndexDoesNotExist,
-    #[error("KeyDoesNotExistInSecondaryIndex")]
-    KeyDoesNotExistInSecondaryIndex { index_key: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -215,24 +209,6 @@ impl From<RpcCustomError> for Error {
                 data: Some(serde_json::json!(MinContextSlotNotReachedErrorData {
                     context_slot,
                 })),
-            },
-            RpcCustomError::SecondaryIndexDoesNotExist => Self {
-                code: ErrorCode::ServerError(
-                    JSON_RPC_SERVER_ERROR_SECONDARY_INDEX_DOES_NOT_EXIST,
-                ),
-                message: "The secondary index does not exist".to_string(),
-                data: None,
-            },
-            RpcCustomError::KeyDoesNotExistInSecondaryIndex { index_key } => Self {
-                code: ErrorCode::ServerError(
-                    JSON_RPC_SERVER_ERROR_KEY_EXCLUDED_FROM_SECONDARY_INDEX,
-                ),
-                message: format!(
-                    "{} does not exist in any account secondary indexes; \
-                    this RPC method unavailable for key",
-                    index_key
-                ),
-                data: None,
             },
         }
     }

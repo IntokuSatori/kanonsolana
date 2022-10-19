@@ -115,6 +115,22 @@ type RpcCustomResult<T> = std::result::Result<T, RpcCustomError>;
 pub const MAX_REQUEST_BODY_SIZE: usize = 50 * (1 << 10); // 50kB
 pub const PERFORMANCE_SAMPLES_LIMIT: usize = 720;
 
+fn map_account_index(account_index: &AccountIndex) -> RpcAccountIndex {
+    match account_index {
+        AccountIndex::ProgramId => RpcAccountIndex::ProgramId,
+        AccountIndex::SplTokenOwner => RpcAccountIndex::SplTokenOwner,
+        AccountIndex::SplTokenMint => RpcAccountIndex::SplTokenMint,
+    }
+}
+
+fn _map_rpc_account_index(rpc_account_index: &RpcAccountIndex) -> AccountIndex {
+    match rpc_account_index {
+        RpcAccountIndex::ProgramId => AccountIndex::ProgramId,
+        RpcAccountIndex::SplTokenOwner => AccountIndex::SplTokenOwner,
+        RpcAccountIndex::SplTokenMint => AccountIndex::SplTokenMint,
+    }
+}
+
 fn new_response<T>(bank: &Bank, value: T) -> RpcResponse<T> {
     RpcResponse {
         context: RpcResponseContext::new(bank.slot()),
@@ -507,60 +523,48 @@ impl JsonRpcRequestProcessor {
         })
     }
 
-    pub fn get_secondary_index_key_size (
+    pub fn get_secondary_index_key_size(
         &self,
         index_key: &Pubkey,
-        commitment: Option<CommitmentConfig>
-    ) -> Result<RpcResponse<Option<HashMap<JsonAccountIndex, usize>>>>
-    {        
+        commitment: Option<CommitmentConfig>,
+    ) -> Result<RpcResponse<HashMap<RpcAccountIndex, usize>>> {
+        // Acquire the bank
+        let bank = self.bank(commitment);
+
         // Grab RPC server's secondary index config
         // Exit if secondary indexes are not enabled
-        let secondary_index_config = 
-            if !self.config.account_indexes.is_empty() {
-                &self.config.account_indexes
-            }
-            else { return None.ok_or(Error::from(RpcCustomError::SecondaryIndexDoesNotExist)); };
-        
+        let secondary_index_config = if !self.config.account_indexes.is_empty() {
+            &self.config.account_indexes
+        } else {
+            return Ok(new_response(&bank, HashMap::new()));
+        };
+
         // Make sure your key is not explicitly excluded
         if !self.config.account_indexes.include_key(index_key) {
-            return None.ok_or(Error::from(RpcCustomError::KeyExcludedFromSecondaryIndex {
-                index_key: index_key.to_string(),
-            }));
+            return None.ok_or_else(|| {
+                Error::from(RpcCustomError::KeyExcludedFromSecondaryIndex {
+                    index_key: index_key.to_string(),
+                })
+            });
         }
-
-        // Aquire the bank
-        let bank = self.bank(commitment);
 
         // Grab a ref to the AccountsIndex for this Bank
         let accounts_index = &bank.accounts().accounts_db.accounts_index;
 
         // Find the size of the key in every index where it exists
-        let found_sizes = 
-            Some(secondary_index_config
+        let found_sizes = Some(
+            secondary_index_config
                 .indexes
                 .iter()
-                .filter_map(|idx| 
-                    {
-                        let sz = accounts_index.get_index_key_size(idx, index_key);
-                        (sz.is_some())
-                        .then(|| 
-                        (match idx {
-                            AccountIndex::ProgramId => JsonAccountIndex::ProgramId,
-                            AccountIndex::SplTokenOwner => JsonAccountIndex::SplTokenOwner,
-                            AccountIndex::SplTokenMint => JsonAccountIndex::SplTokenMint
-                        }, sz.unwrap()))
-                    }).collect::<HashMap<_, _>>()
-            );
-        
-        // If you have an empty map, the key DNE in the secondary indices
-        if found_sizes.is_some() && found_sizes.as_ref().unwrap().is_empty() {
-            return None.ok_or(Error::from(RpcCustomError::KeyDoesNotExistInSecondaryIndex {
-                index_key: index_key.to_string(),
-            }));
-        }
+                .filter_map(|index| {
+                    let size = accounts_index.get_index_key_size(index, index_key);
+                    (size.is_some()).then(|| (map_account_index(index), size.unwrap()))
+                })
+                .collect::<HashMap<_, _>>(),
+        );
 
-        Ok(new_response(&bank, found_sizes))
-
+        // Note: Will return an empty HashMap if no keys are found.
+        Ok(new_response(&bank, found_sizes.unwrap()))
     }
 
     pub async fn get_inflation_reward(
@@ -3044,7 +3048,7 @@ pub mod rpc_accounts {
             meta: Self::Metadata,
             pubkey_str: String,
             commitment: Option<CommitmentConfig>,
-        ) -> Result<RpcResponse<Option<HashMap<JsonAccountIndex, usize>>>>;
+        ) -> Result<RpcResponse<HashMap<RpcAccountIndex, usize>>>;
 
         #[rpc(meta, name = "getBlockCommitment")]
         fn get_block_commitment(
@@ -3202,7 +3206,7 @@ pub mod rpc_accounts {
             meta: Self::Metadata,
             pubkey_str: String,
             commitment: Option<CommitmentConfig>,
-        ) -> Result<RpcResponse<Option<HashMap<JsonAccountIndex, usize>>>> {
+        ) -> Result<RpcResponse<HashMap<RpcAccountIndex, usize>>> {
             debug!(
                 "get_secondary_index_key_size rpc request received: {:?}",
                 pubkey_str
