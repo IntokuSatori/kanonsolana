@@ -1206,9 +1206,21 @@ impl Bank {
     }
 
     pub fn new_for_tests(genesis_config: &GenesisConfig) -> Self {
+        Self::_new_for_tests(genesis_config, false)
+    }
+
+    pub fn new_for_tests_with_secondary_indexes(genesis_config: &GenesisConfig) -> Self {
+        Self::_new_for_tests(genesis_config, true)
+    }
+
+    fn _new_for_tests(genesis_config: &GenesisConfig, enable_secondary_indexes: bool) -> Self {
         Self::new_with_config_for_tests(
             genesis_config,
-            AccountSecondaryIndexes::default(),
+            if enable_secondary_indexes {
+                AccountSecondaryIndexes::default_for_test()
+            } else {
+                AccountSecondaryIndexes::default()
+            },
             false,
             AccountShrinkThreshold::default(),
         )

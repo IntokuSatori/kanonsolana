@@ -219,6 +219,16 @@ impl AccountSecondaryIndexes {
             None => true, // include all keys
         }
     }
+    pub fn default_for_test() -> Self {
+        Self {
+            keys: None,
+            indexes: HashSet::from([
+                AccountIndex::ProgramId,
+                AccountIndex::SplTokenMint,
+                AccountIndex::SplTokenOwner,
+            ]),
+        }
+    }
 }
 
 #[derive(Debug, Default)]

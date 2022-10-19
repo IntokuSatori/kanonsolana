@@ -141,6 +141,12 @@ fn main() {
                 .help("Log mode: stream the validator log"),
         )
         .arg(
+            Arg::with_name("secondary-indexes")
+                .long("secondary-indexes")
+                .takes_value(false)
+                .help("Enables the secondary indexes."),
+        )
+        .arg(
             Arg::with_name("faucet_port")
                 .long("faucet-port")
                 .value_name("PORT")
@@ -440,6 +446,7 @@ fn main() {
 
     let ledger_path = value_t_or_exit!(matches, "ledger_path", PathBuf);
     let reset_ledger = matches.is_present("reset");
+    let enable_secondary_indexes = matches.is_present("secondary-indexes");
 
     if !ledger_path.exists() {
         fs::create_dir(&ledger_path).unwrap_or_else(|err| {
@@ -752,13 +759,6 @@ fn main() {
             faucet_pubkey,
             AccountSharedData::new(faucet_lamports, 0, &system_program::id()),
         )
-        .rpc_config(JsonRpcConfig {
-            enable_rpc_transaction_history: true,
-            enable_extended_tx_metadata_storage: true,
-            rpc_bigtable_config,
-            faucet_addr,
-            ..JsonRpcConfig::default_for_test()
-        })
         .pubsub_config(PubSubConfig {
             enable_vote_subscription,
             ..PubSubConfig::default()
@@ -777,6 +777,24 @@ fn main() {
             exit(1);
         })
         .deactivate_features(&features_to_deactivate);
+
+    if enable_secondary_indexes {
+        genesis.rpc_config(JsonRpcConfig {
+            enable_rpc_transaction_history: true,
+            enable_extended_tx_metadata_storage: true,
+            rpc_bigtable_config,
+            faucet_addr,
+            ..JsonRpcConfig::default_for_test_with_secondary_indexes()
+        });
+    } else {
+        genesis.rpc_config(JsonRpcConfig {
+            enable_rpc_transaction_history: true,
+            enable_extended_tx_metadata_storage: true,
+            rpc_bigtable_config,
+            faucet_addr,
+            ..JsonRpcConfig::default_for_test()
+        });
+    }
 
     if !accounts_to_clone.is_empty() {
         if let Err(e) = genesis.clone_accounts(
