@@ -7919,12 +7919,14 @@ pub(crate) mod tests {
                 genesis_sysvar_and_builtin_program_lamports, GenesisConfigInfo,
                 ValidatorVoteKeypairs,
             },
+            loader_utils::load_program,
             rent_collector::RENT_EXEMPT_RENT_EPOCH,
             rent_paying_accounts_by_partition::RentPayingAccountsByPartition,
             status_cache::MAX_CACHE_ENTRIES,
         },
         crossbeam_channel::{bounded, unbounded},
         rand::Rng,
+        solana_bpf_loader_program::solana_bpf_loader_program,
         solana_program_runtime::{
             compute_budget::MAX_COMPUTE_UNIT_LIMIT,
             invoke_context::{mock_process_instruction, InvokeContext},
@@ -20256,5 +20258,64 @@ pub(crate) mod tests {
                 .rent_epoch(),
             RENT_EXEMPT_RENT_EPOCH
         );
+    }
+
+    fn test_runtime_feature_enable_with_executor_cache() {
+        solana_logger::setup();
+        
+        // Bank Setup
+        let (genesis_config, mint_keypair) = 
+            create_genesis_config(1_000_000 * LAMPORTS_PER_SOL);
+        let mut bank = Bank::new_for_tests(&genesis_config);
+        let (name, id, entrypoint) = solana_bpf_loader_program!();
+        bank.add_builtin(&name, &id, entrypoint);
+        let bank = Arc::new(bank);
+        let bank_client = BankClient::new_shared(&bank);
+        
+        // Program Setup
+        let loader_program_id = load_program(&bank_client, &bpf_loader::id(), &mint_keypair, "test_runtime_feature_activation");
+        let program_keypair = Keypair::new();
+        let program_data = include_bytes!("../../programs/bpf_loader/test_elfs/out/callx_r10.so");
+        let program_account = AccountSharedData::from(Account {
+            lamports: Rent::default().minimum_balance(program_data.len()).min(1),
+            data: program_data.to_vec(),
+            owner: loader_program_id,
+            executable: true,
+            rent_epoch: 0,
+        });
+        bank.store_account(&program_keypair.pubkey(), &program_account);
+        
+        // Compose and instruction using the desired program
+        account_meta = AccountMeta::new(mint_pubkey, true);
+        let instruction = Instruction::new_with_bytes(
+            loader_program_id,
+            &[],
+            account_metas.clone(),
+        );
+        let noop_instruction = Instruction::new_with_bytes(noop_program_id, &[], vec![]);
+        let message = Message::new(&[instruction, noop_instruction], Some(&mint_pubkey));
+        let tx = Transaction::new(
+            &[
+                &mint_keypair,
+                &argument_keypair,
+                &invoked_argument_keypair,
+                &from_keypair,
+            ],
+            message.clone(),
+            bank.last_blockhash(),
+        );
+        let (result, inner_instructions, _log_messages) =
+            process_transaction_and_record_inner(&bank, tx);
+        assert_eq!(result, Ok(()));
+
+        // Execute before feature is enabled to get program into the cache.
+        
+        // Activate feature 
+        // bank.activate_feature();
+
+        // Execute after feature is enabled
+
+        // Compare results
+
     }
 }
